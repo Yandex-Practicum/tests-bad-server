@@ -3,6 +3,28 @@ import path from 'path';
 import { test, expect } from '@playwright/test';
 import shell from 'shelljs';
 
+const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+const requestWithRetry = async (
+  request: any,
+  method: 'get' | 'post',
+  url: string,
+  options: Record<string, any> = {},
+  retries = 3,
+) => {
+  let attempt = 0;
+  let response;
+  while (attempt <= retries) {
+    response = await request[method](url, options);
+    if (response.status() !== 429) {
+      return response;
+    }
+    await wait(6000);
+    attempt += 1;
+  }
+  return response;
+};
+
 test.describe('Проверка на уязвимость пакетов', () => {
   test('Аудит backend пакетов', () => {
     const result = shell.exec('npm audit', { cwd: `${process.env.GITHUB_WORKSPACE}/backend`, silent: true });
@@ -16,7 +38,7 @@ test.describe('Проверка заказов', () => {
   });
 
   test('Нормализован лимит', async ({ request }) => {
-    const response = await request.get(`${process.env.API_URL}/orders/all?page=2&limit=1000`, {
+    const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/orders/all?page=2&limit=1000`, {
       headers: {
         'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
       }
@@ -27,7 +49,7 @@ test.describe('Проверка заказов', () => {
   });
 
   test('При избыточной аггрегации, уязвимой к инъекции должна быть ошибка', async ({ request }) => {
-    const response = await request.get(`${process.env.API_URL}/orders/all?status[$expr][$function][body]='function%20(status)%20%7B%20return%20status%20%3D%3D%3D%20%22completed%22%20%7D'&status[$expr][$function][lang]=js&status[$expr][$function][args][0]=%24status`, {
+    const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/orders/all?status[$expr][$function][body]='function%20(status)%20%7B%20return%20status%20%3D%3D%3D%20%22completed%22%20%7D'&status[$expr][$function][lang]=js&status[$expr][$function][args][0]=%24status`, {
       headers: {
         'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
       }
@@ -36,7 +58,7 @@ test.describe('Проверка заказов', () => {
   });
 
   test('Санитизирован комментарий', async ({ request }) => {
-    const response = await request.post(`${process.env.API_URL}/orders`, {
+    const response = await requestWithRetry(request, 'post', `${process.env.API_URL}/orders`, {
       headers: {
         'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
       },
@@ -57,7 +79,7 @@ test.describe('Проверка заказов', () => {
   });
 
   test('Уязвимость телефона', async ({ request }) => {
-    const response = await request.post(`${process.env.API_URL}/orders`, {
+    const response = await requestWithRetry(request, 'post', `${process.env.API_URL}/orders`, {
       headers: {
         'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
       },
@@ -75,7 +97,7 @@ test.describe('Проверка заказов', () => {
   });
 
   test('Проверка роли (у пользователя отсутствует доступ к базе всех заказов)', async ({ request }) => {
-    const response = await request.get(`${process.env.API_URL}/orders/all`, {
+    const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/orders/all`, {
       headers: {
         'Authorization': `Bearer ${process.env.USER_TOKEN}`
       }
@@ -92,7 +114,7 @@ test.describe('Проверка пользователей', () => {
   });
 
   test('Нормализован лимит', async ({ request }) => {
-    const response = await request.get(`${process.env.API_URL}/customers?limit=1000`, {
+    const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/customers?limit=1000`, {
       headers: {
         'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
       }
@@ -103,7 +125,7 @@ test.describe('Проверка пользователей', () => {
   });
 
   test('Экранирование при поиске', async ({ request }) => {
-    const response = await request.get(`${process.env.API_URL}/customers?search=1+{}$()`, {
+    const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/customers?search=1+{}$()`, {
       headers: {
         'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
       }
@@ -112,7 +134,7 @@ test.describe('Проверка пользователей', () => {
   });
 
   test('Проверка роли (у пользователя отсутствует доступ к базе всех пользователей)', async ({ request }) => {
-    const response = await request.get(`${process.env.API_URL}/customers`, {
+    const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/customers`, {
       headers: {
         'Authorization': `Bearer ${process.env.USER_TOKEN}`
       }
@@ -143,7 +165,7 @@ test.describe('Проверка загрузки файлов', () => {
     const imagePath = path.join(process.cwd(), 'data/mimage.png');
     const image = fs.readFileSync(imagePath);
 
-    const response = await request.post(`${process.env.API_URL}/upload`, {
+    const response = await requestWithRetry(request, 'post', `${process.env.API_URL}/upload`, {
       headers: {
         'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
       },
