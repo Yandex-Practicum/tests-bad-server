@@ -1,7 +1,22 @@
 import fs from 'fs';
 import path from 'path';
 import { test, expect } from '@playwright/test';
+import type { APIRequestContext } from '@playwright/test';
 import shell from 'shelljs';
+
+const getCsrfToken = async (request: APIRequestContext) => {
+  const csrfResponse = await request.get(`${process.env.API_URL}/auth/csrf-token`);
+  if (csrfResponse.status() !== 200) {
+    throw new Error(`Получение CSRF токена не удалось: ${csrfResponse.status()} ${csrfResponse.statusText()}`);
+  }
+
+  const { csrfToken } = await csrfResponse.json();
+  if (!csrfToken) {
+    throw new Error('CSRF токен отсутствует в ответе /auth/csrf-token');
+  }
+
+  return csrfToken;
+};
 
 const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
 
@@ -30,6 +45,11 @@ test.describe('Проверка на уязвимость пакетов', () =>
     const result = shell.exec('npm audit', { cwd: `${process.env.GITHUB_WORKSPACE}/backend`, silent: true });
     expect(result.code).toEqual(0);
   });
+
+  test('Аудит frontend пакетов', () => {
+    const result = shell.exec('npm audit', { cwd: `${process.env.GITHUB_WORKSPACE}/frontend`, silent: true });
+    expect(result.code).toEqual(0);
+  });
 });
 
 test.describe('Проверка заказов', () => {
@@ -38,9 +58,11 @@ test.describe('Проверка заказов', () => {
   });
 
   test('Нормализован лимит', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/order/all?page=2&limit=1000`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       }
     });
     const data = await response.json();
@@ -49,18 +71,22 @@ test.describe('Проверка заказов', () => {
   });
 
   test('При избыточной аггрегации, уязвимой к инъекции должна быть ошибка', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/order/all?status[$expr][$function][body]='function%20(status)%20%7B%20return%20status%20%3D%3D%3D%20%22completed%22%20%7D'&status[$expr][$function][lang]=js&status[$expr][$function][args][0]=%24status`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       }
     });
     expect(response.ok()).toBeFalsy();
   });
 
   test('Санитизирован комментарий', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const response = await requestWithRetry(request, 'post', `${process.env.API_URL}/order`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       },
       data: {
         "payment": "online",
@@ -79,9 +105,11 @@ test.describe('Проверка заказов', () => {
   });
 
   test('Уязвимость телефона', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const response = await requestWithRetry(request, 'post', `${process.env.API_URL}/order`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       },
       data: {
         "address": "Васильевская 86",
@@ -114,9 +142,11 @@ test.describe('Проверка пользователей', () => {
   });
 
   test('Нормализован лимит', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/customers?limit=1000`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       }
     });
     const data = await response.json();
@@ -125,9 +155,11 @@ test.describe('Проверка пользователей', () => {
   });
 
   test('Экранирование при поиске', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const response = await requestWithRetry(request, 'get', `${process.env.API_URL}/customers?search=1+{}$()`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       }
     });
     expect(response.ok()).toBeTruthy();
@@ -165,9 +197,11 @@ test.describe('Проверка загрузки файлов', () => {
     const imagePath = path.join(process.cwd(), 'data/mimage.png');
     const image = fs.readFileSync(imagePath);
 
+    const csrfToken = await getCsrfToken(request);
     const response = await requestWithRetry(request, 'post', `${process.env.API_URL}/upload`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       },
       multipart: {
         file: {
@@ -191,9 +225,11 @@ test.describe('Проверка загрузки файлов', () => {
     const imagePath = path.join(process.cwd(), 'data/simage.png');
     const image = fs.readFileSync(imagePath);
 
+    const csrfToken = await getCsrfToken(request);
     const response = await request.post(`${process.env.API_URL}/upload`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       },
       multipart: {
         file: {
@@ -211,9 +247,11 @@ test.describe('Проверка загрузки файлов', () => {
     const imagePath = path.join(process.cwd(), 'data/bimage.png');
     const image = fs.readFileSync(imagePath);
 
+    const csrfToken = await getCsrfToken(request);
     const response = await request.post(`${process.env.API_URL}/upload`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       },
       multipart: {
         file: {
@@ -228,9 +266,11 @@ test.describe('Проверка загрузки файлов', () => {
   });
 
   test('Проверка метаданных загружаемого изображения', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const response = await request.post(`${process.env.API_URL}/upload`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       },
       multipart: {
         file: {
@@ -251,18 +291,22 @@ test.describe('Общие проверки', () => {
   });
 
   test('cors() содержит параметры и не пустой', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const response = await request.get(`${process.env.API_URL}/customers`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       }
     });
     expect(response.headers()).toHaveProperty('access-control-allow-origin', 'http://localhost:5173');
   });
 
   test('Лимит на размер body', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const response = await request.post(`${process.env.API_URL}/order`, {
       headers: {
-        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+        'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+        'X-CSRF-Token': csrfToken,
       },
       data: {
         "address": "1".repeat(100000000),
@@ -279,11 +323,13 @@ test.describe('Общие проверки', () => {
   });
 
   test('Установлен рейт-лимит', async ({ request }) => {
+    const csrfToken = await getCsrfToken(request);
     const promises: Promise<any>[] = [];
     for (let i = 0; i < 50; i++) {
       promises.push(request.get(`${process.env.API_URL}/customers`, {
         headers: {
-          'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`
+          'Authorization': `Bearer ${process.env.ADMIN_TOKEN}`,
+          'X-CSRF-Token': csrfToken,
         }
       }));
     }
