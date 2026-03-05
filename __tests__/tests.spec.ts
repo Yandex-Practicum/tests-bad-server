@@ -46,10 +46,10 @@ test.describe('Проверка на уязвимость пакетов', () =>
     expect(result.code).toEqual(0);
   });
 
-  // test('Аудит frontend пакетов', () => {
-  //   const result = shell.exec('npm audit', { cwd: `${process.env.GITHUB_WORKSPACE}/frontend`, silent: true });
-  //   expect(result.code).toEqual(0);
-  // });
+  test('Аудит frontend пакетов', () => {
+    const result = shell.exec('npm audit', { cwd: `${process.env.GITHUB_WORKSPACE}/frontend`, silent: true });
+    expect(result.code).toEqual(0);
+  });
 });
 
 test.describe('Проверка заказов', () => {
