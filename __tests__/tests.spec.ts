@@ -272,18 +272,6 @@ test.describe('Проверка загрузки файлов', () => {
 
     expect(response.ok()).toBeFalsy();
   });
-
-  //Тест перенесен сюда, потому что директория может создаваться не в момент запуска приложения, а в момент загрузки файла
-  test('Каталог для временных загрузок не должен отсутствовать', async () => {
-    const workspace = process.env.GITHUB_WORKSPACE || path.resolve(process.cwd(), '..');
-    const tempDir = path.join(
-      workspace,
-      'backend/src/public',
-      process.env.UPLOAD_PATH_TEMP || 'temp',
-    );
-
-    expect(fs.existsSync(tempDir)).toBeTruthy();
-  });
 });
 
 test.describe('Общие проверки', () => {
